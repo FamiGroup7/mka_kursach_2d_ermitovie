@@ -34,6 +34,17 @@ struct point // точка
 
 	point();
 	double x, y;
+
+	friend bool operator==(const point& lhs, const point& rhs)
+	{
+		return lhs.x == rhs.x
+			&& lhs.y == rhs.y;
+	}
+
+	friend bool operator!=(const point& lhs, const point& rhs)
+	{
+		return !(lhs == rhs);
+	}
 };
 
 struct locateOfPoint
@@ -117,16 +128,16 @@ double* xNet;
 double* yNet;
 
 int countOfNodes;
+int countOfGlobalBasicFunc;
 
 //matrix
 int *ig, *jg;
 double *ggl, *ggu, *di, *b, *q;
 int iter;
 
-double localB[4], localMatrix[4][4];
-double helpG1[4][4] = {{2, -2, 1, -1},{-2, 2, -1, 1},{1, -1, 2, -2},{-1, 1, -2, 2}};
-double helpG2[4][4] = {{2, 1, -2, -1},{1, 2, -1, -2},{-2, -1, 2, 1},{-1, -2, 1, 2}};
-double helpM[4][4] = {{4, 2, 2, 1},{2, 4, 1, 2},{2, 1, 4, 2},{1, 2, 2, 4}};
+double localB[16], localMatrix[16][16];
+
+double hForProizv = 1e-6;
 
 void Reshape(GLint w, GLint h) // При изменении размеров окна
 {
@@ -155,8 +166,28 @@ int FindNumberOfKe(int uzel1, int uzel2)
 				}
 		}
 	}
-	cout << "Ошибка краевых условий. Не найден КЭ." << endl;
+	cout << "Ошибка. Не найден КЭ." << endl;
+	system("pause");
 	exit(1);
+}
+
+int indexXY(point goal)
+{
+	for (int i = 0; i < xy.size(); i++)
+	{
+		if (goal == xy[i])
+			return i;
+	}
+
+	cout << "Ошибка. Не найдена точка (" << goal.x << "," << goal.y << ")" << endl;
+	system("pause");
+	exit(1);
+}
+
+int indexXY(double x, double y)
+{
+	point goal(x, y);
+	return indexXY(goal);
 }
 
 int NumberNode(double x, double y)
@@ -189,6 +220,7 @@ locateOfPoint FindLocate(point sample)
 	if (a.i == -1 || a.j == -1)
 	{
 		cout << "Ошибка FindLocate: не найдена точка" << endl;
+		system("pause");
 		exit(1);
 	}
 	return a;
@@ -405,6 +437,10 @@ void GenerateNetLikeTelma(set<double>& mas, ifstream& fileNet)
 			lastPosition = position;
 			position += napravlenie[i] * stepReal;
 		}
+		if (i != numberOfInterval - 1)
+		{
+			mas.insert(endPosition);
+		}
 		//if (fabs(lastPosition - endPosition) < sizeOfSteps[i] && lastPosition != startPosition)
 		//{
 		//	mas.erase(mas.find(lastPosition));
@@ -570,21 +606,31 @@ void GeneratePortrait()
 	for (size_t i = 0; i < countOfNodes; i++)
 		gg_size += portrait[i].size();
 
-	ig = new int[countOfNodes + 1];
-	di = new double[countOfNodes];
-	b = new double[countOfNodes];
-	q = new double[countOfNodes];
+	countOfGlobalBasicFunc = 4 * countOfNodes;
+
+	ig = new int[countOfGlobalBasicFunc + 1];
+	di = new double[countOfGlobalBasicFunc];
+	b = new double[countOfGlobalBasicFunc];
+	q = new double[countOfGlobalBasicFunc];
 	ig[0] = ig[1] = 0;
-	for (size_t i = 0; i < countOfNodes; i++)
+	for (size_t i = 0; i < countOfGlobalBasicFunc; i++)
 	{
 		di[i] = b[i] = q[i] = 0;
-		ig[i + 1] = ig[i] + portrait[i].size();
 	}
-	jg = new int[ig[countOfNodes]];
-	ggl = new double[ig[countOfNodes]];
-	ggu = new double[ig[countOfNodes]];
+	for (int i = 0; i < countOfNodes; i++)
+	{
+		size_t size = portrait[i].size() * 4;
+		ig[4 * i + 1] = ig[4 * i] + size;
+		ig[4 * i + 2] = ig[4 * i + 1] + size + 1;
+		ig[4 * i + 3] = ig[4 * i + 2] + size + 2;
+		ig[4 * i + 4] = ig[4 * i + 3] + size + 3;
+	}
 
-	for (size_t i = 0; i < ig[countOfNodes]; i++)
+	jg = new int[ig[countOfGlobalBasicFunc]];
+	ggl = new double[ig[countOfGlobalBasicFunc]];
+	ggu = new double[ig[countOfGlobalBasicFunc]];
+
+	for (size_t i = 0; i < ig[countOfGlobalBasicFunc]; i++)
 	{
 		ggl[i] = 0;
 		ggu[i] = 0;
@@ -593,26 +639,38 @@ void GeneratePortrait()
 	size_t tmp = 0;
 	for (size_t i = 0; i < countOfNodes; i++)
 	{
-		for (set<size_t>::iterator j = portrait[i].begin(); j != portrait[i].end(); ++j)
+		for (int iErm = 4 * i; iErm < 4 * i + 4; iErm++)
 		{
-			jg[tmp] = *j;
-			tmp++;
+			for (set<size_t>::iterator j = portrait[i].begin(); j != portrait[i].end(); ++j)
+			{
+				for (int jErm = 0; jErm < 4; jErm++)
+				{
+					jg[tmp] = 4 * *j + jErm;
+					tmp++;
+				}
+			}
+			//portrait[i].clear();
+
+			for (int iDop = 4 * i; iDop < iErm; iDop++)
+			{
+				jg[tmp] = iDop;
+				tmp++;
+			}
 		}
-		portrait[i].clear();
 	}
 	delete[] portrait;
 
 	int i, j;
 	ofstream igOut("ig.txt");
 	ofstream jgOut("jg.txt");
-	for (i = 0; i <= countOfNodes; i++)
+	for (i = 0; i <= countOfGlobalBasicFunc; i++)
 	{
 		igOut << ig[i] << "   " << i << "   ";
-		if (i != countOfNodes)
+		if (i != countOfGlobalBasicFunc)
 			igOut << ig[i + 1] - ig[i] << endl;
 	}
 	cout << endl;
-	for (j = 0; j < countOfNodes; j++)
+	for (j = 0; j < countOfGlobalBasicFunc; j++)
 	{
 		jgOut << "string " << j << ": ";
 		for (i = ig[j]; i < ig[j + 1]; i++)
@@ -626,35 +684,175 @@ void GeneratePortrait()
 double AnaliticSolution(double x, double y)
 {
 	//return x;
-	return x + y;
+	//return 5;
 	//return x*x + y*y;
+	return 1+x+y+x*x+y*y+x*y+x*x*x + y*y*y;
+	//return 4 * x * x * x * y * y * y + 5 * x * x * y + 2 * y * y + 10;
+}
+
+double AnaliticSolution(point p)
+{
+	return AnaliticSolution(p.x, p.y);
+}
+
+double AnaliticSolutionDx(double x, double y)
+{
+	double t = (AnaliticSolution(x + hForProizv, y) - AnaliticSolution(x - hForProizv, y)) / (2.0 * hForProizv);
+	//double x1 = 12 * x * x * y * y * y + 10 * x * y;
+	return t;
+}
+
+double AnaliticSolutionDx(point p)
+{
+	return AnaliticSolutionDx(p.x, p.y);
+}
+
+double AnaliticSolutionDy(double x, double y)
+{
+	double t = (AnaliticSolution(x, y + hForProizv) - AnaliticSolution(x, y - hForProizv)) / (2.0 * hForProizv);
+	//double y1 = 12 * x*x*x*y*y + 5 * x*x + 4 * y;
+	return t;
+}
+
+double AnaliticSolutionDy(point p)
+{
+	return AnaliticSolutionDy(p.x, p.y);
+}
+
+double AnaliticSolutionDxDy(double x, double y)
+{
+	//return 0;
+	return 1;
+	//double value = 36 * x * x * y * y + 10 * x;
+
+	//chislennoe
+	//double result = (AnaliticSolutionDy(x+hForProizv, y) - AnaliticSolutionDy(x-hForProizv, y)) / (2 * hForProizv);
+}
+
+double AnaliticSolutionDxDy(point p)
+{
+	return AnaliticSolutionDxDy(p.x, p.y);
 }
 
 double Lambda(int ielem)
 {
-	//return sreda[KE[ielem].numberField].lambda;
-	return 1;
+	return sreda[KE[ielem].numberField].lambda;
+	//return 1;
 	//return 5;
 }
 
 double Gamma(int ielem)
 {
-	//return sreda[KE[ielem].numberField].gamma;
+	return sreda[KE[ielem].numberField].gamma;
 	//return 1;
-	return 1;
+	//return 1;
+}
+
+double Func(double x,double y)
+{
+	//return 5;
+	//return -4 + x*x + y*y;
+	//return -6 * x - 6 * y + x*x*x + y*y*y;
+	return -4 -6 * x - 6 * y + 1 + x + y + x*x + y*y+x*y + x*x*x + y*y*y;
+	//return -4;
+	//return x;
+	//return -24 * (x * y * y * y + x * x * x * y) - 10 * y - 4 + 2 * (4 * x * x * x * y * y * y + 5 * x * x * y + 2 * y * y + 10);
 }
 
 double Func(int ielem, int localNumber)
 {
-	return xy[KE[ielem].uzel[localNumber]].x + xy[KE[ielem].uzel[localNumber]].y;
-	//return sreda[KE[ielem].numberField].gamma*AnaliticSolution(xy[KE[ielem].uzel[localNumber]].x, xy[KE[ielem].uzel[localNumber]].y);
-	//return xy[KE[ielem].uzel[localNumber]].x;
-	//return sreda[KE[ielem].numberField].gamma*(xy[KE[ielem].uzel[localNumber]].x + xy[KE[ielem].uzel[localNumber]].y + 5);
-	//return 1;
-	//return -4;
-	//return (xy[KE[ielem].uzel[localNumber]].x + xy[KE[ielem].uzel[localNumber]].y) + 5;
-	//return 0;
-	//return 2*(xy[KE[ielem].uzel[localNumber]].x*xy[KE[ielem].uzel[localNumber]].x + xy[KE[ielem].uzel[localNumber]].y*xy[KE[ielem].uzel[localNumber]].y) - 20;
+	double x = xy[KE[ielem].uzel[localNumber]].x;
+	double y = xy[KE[ielem].uzel[localNumber]].y;
+	return Func(x, y);
+}
+
+double FuncDx(int ielem, int localNumber)
+{
+	double x = xy[KE[ielem].uzel[localNumber]].x;
+	double y = xy[KE[ielem].uzel[localNumber]].y;
+	double test = -24 * (y * y * y + 3 * x * x * y) + 2 * (12 * x * x * y * y * y + 10 * x * y);
+	double chisl = (Func(x + hForProizv, y) - Func(x - hForProizv, y)) / (2.0 * hForProizv);
+	return chisl;
+}
+
+double FuncDy(int ielem, int localNumber)
+{
+	double x = xy[KE[ielem].uzel[localNumber]].x;
+	double y = xy[KE[ielem].uzel[localNumber]].y;
+	double test = -24 * (x * 3 * y * y + x * x * x) - 10 + 2 * (12 * x * x * x * y * y + 5 * x * x + 4 * y);
+	double chisl = (Func(x, y + hForProizv) - Func(x, y - hForProizv)) / (2.0 * hForProizv);
+	return chisl;
+}
+
+double FuncDy(double x,double y)
+{
+	return (Func(x, y + hForProizv) - Func(x, y - hForProizv)) / (2.0 * hForProizv);
+}
+
+double FuncDxDy(int ielem, int localNumber)
+{
+	double x = xy[KE[ielem].uzel[localNumber]].x;
+	double y = xy[KE[ielem].uzel[localNumber]].y;
+	double test = -24 * (3 * y * y + 3 * x * x) + 2 * (36 * x * x * y * y + 10 * x);
+	double chisl = (FuncDy(x + hForProizv, y) - FuncDy(x - hForProizv, y)) / (2.0 * hForProizv);
+	return chisl;
+}
+
+double BasicFunc1d(int num, double x, double h)
+{
+	switch (num)
+	{
+	case 0: return 1 - 3 * x * x + 2 * x * x * x;
+	case 1: return h * (x - 2 * x * x + x * x * x);
+	case 2: return 3 * x * x - 2 * x * x * x;
+	case 3: return h * (-x * x + x * x * x);
+	default:
+		{
+			cerr << "Error in Basic Func" << endl;
+			system("pause");
+			exit(1);
+		}
+	}
+}
+
+double** createLocalG1d(double h)
+{
+	double** loc = new double *[4];
+	for (int i = 0; i < 4; i++)
+		loc[i] = new double[4];
+
+	double localG[4][4] = {
+		{36,3 * h,-36,3 * h},
+		{3 * h,4 * h * h,-3 * h,-h * h},
+		{-36,-3 * h,36,-3 * h},
+		{3 * h,- h * h,-3 * h,4 * h * h}
+	};
+	for (int i = 0; i < 4; i++)
+	{
+		for (int j = 0; j < 4; j++)
+			loc[i][j] = localG[i][j] / (30. * h);
+	}
+	return loc;
+}
+
+double** createLocalM1d(double h)
+{
+	double** loc = new double *[4];
+	for (int i = 0; i < 4; i++)
+		loc[i] = new double[4];
+
+	double localM[4][4] = {
+		{156,22 * h,54,-13 * h},
+		{22 * h,4 * h * h,13 * h,-3 * h * h},
+		{54,13 * h,156,-22 * h},
+		{-13 * h,-3 * h * h,-22 * h,4 * h * h}
+	};
+	for (int i = 0; i < 4; i++)
+	{
+		for (int j = 0; j < 4; j++)
+			loc[i][j] = localM[i][j] * h / 420.;
+	}
+	return loc;
 }
 
 void CreateLocalMatrixs(int ielem)
@@ -664,13 +862,35 @@ void CreateLocalMatrixs(int ielem)
 	int i, j;
 	hXlocal = xy[KE[ielem].uzel[1]].x - xy[KE[ielem].uzel[0]].x;
 	hYlocal = xy[KE[ielem].uzel[2]].y - xy[KE[ielem].uzel[0]].y;
-	for (i = 0; i < 4; i++)
+	double** localG1dX = createLocalG1d(hXlocal);
+	double** localM1dX = createLocalM1d(hXlocal);
+	double** localG1dY = createLocalG1d(hYlocal);
+	double** localM1dY = createLocalM1d(hYlocal);
+
+	for (i = 0; i < 16; i++)
 	{
 		localB[i] = 0;
-		for (j = 0; j < 4; j++)
+		int muI = 2 * ((i / 4) % 2) + (i % 2);
+		int nuI = 2 * (i / 8) + ((i / 2) % 2);
+		for (j = 0; j < 16; j++)
 		{
-			localB[i] += hXlocal * hYlocal * helpM[i][j] * Func(ielem, j) / 36.0;
-			localMatrix[i][j] = Lambda(ielem) / 6.0 * (hYlocal * helpG1[i][j] / hXlocal + hXlocal * helpG2[i][j] / hYlocal) + Gamma(ielem) * hXlocal * hYlocal / 36.0 * helpM[i][j];
+			int muJ = 2 * ((j / 4) % 2) + (j % 2);
+			int nuJ = 2 * (j / 8) + ((j / 2) % 2);
+
+			localMatrix[i][j] = Lambda(ielem) * (localG1dX[muI][muJ] * localM1dY[nuI][nuJ] + localM1dX[muI][muJ] * localG1dY[nuI][nuJ]);
+			localMatrix[i][j] += Gamma(ielem) * localM1dX[muI][muJ] * localM1dY[nuI][nuJ];
+
+			switch (j % 4)
+			{
+			case 0: localB[i] += localM1dX[muI][muJ] * localM1dY[nuI][nuJ] * Func(ielem, j / 4);
+				break;
+			case 1: localB[i] += localM1dX[muI][muJ] * localM1dY[nuI][nuJ] * FuncDx(ielem, j / 4);
+				break;
+			case 2: localB[i] += localM1dX[muI][muJ] * localM1dY[nuI][nuJ] * FuncDy(ielem, j / 4);
+				break;
+			case 3: localB[i] += localM1dX[muI][muJ] * localM1dY[nuI][nuJ] * FuncDxDy(ielem, j / 4);
+				break;
+			}
 		}
 	}
 }
@@ -705,14 +925,19 @@ void AddToMatrix(int posI, int posJ, double el)
 
 void Addition(int ielem)
 {
-	int i, j;
+	int i, j, iSchet, jSchet;
 	for (i = 0; i < 4; i++)
 	{
-		b[KE[ielem].uzel[i]] += localB[i];
-
-		for (j = 0; j < 4; j++)
+		for (iSchet = 0; iSchet < 4; iSchet++)
 		{
-			AddToMatrix(KE[ielem].uzel[i], KE[ielem].uzel[j], localMatrix[i][j]);
+			b[4 * KE[ielem].uzel[i] + iSchet] += localB[4 * i + iSchet];
+			for (j = 0; j <= i; j++)
+			{
+				for (jSchet = 0; jSchet < 4; jSchet++)
+				{
+					AddToMatrix(4 * KE[ielem].uzel[i] + iSchet, 4 * KE[ielem].uzel[j] + jSchet, localMatrix[4 * i + iSchet][4 * j + jSchet]);
+				}
+			}
 		}
 	}
 }
@@ -720,17 +945,17 @@ void Addition(int ielem)
 void PrintPlotMatrix(bool flag_simmeric)
 {
 	int i, j;
-	double** APlot = new double*[countOfNodes];
-	for (i = 0; i < countOfNodes; i++)
+	double** APlot = new double*[countOfGlobalBasicFunc];
+	for (i = 0; i < countOfGlobalBasicFunc; i++)
 	{
-		APlot[i] = new double[countOfNodes];
-		for (j = 0; j < countOfNodes; j++)
+		APlot[i] = new double[countOfGlobalBasicFunc];
+		for (j = 0; j < countOfGlobalBasicFunc; j++)
 		{
 			APlot[i][j] = 0;
 		}
 	}
 	if (flag_simmeric)
-		for (i = 0; i < countOfNodes; i++)
+		for (i = 0; i < countOfGlobalBasicFunc; i++)
 		{
 			APlot[i][i] = di[i];
 			for (j = ig[i]; j < ig[i + 1]; j++)
@@ -740,19 +965,20 @@ void PrintPlotMatrix(bool flag_simmeric)
 			}
 		}
 	else
-		for (i = 0; i < countOfNodes; i++)
+		for (i = 0; i < countOfGlobalBasicFunc; i++)
 		{
 			APlot[i][i] = di[i];
 			for (j = ig[i]; j < ig[i + 1]; j++)
 			{
 				APlot[i][jg[j]] = ggl[j];
 				APlot[jg[j]][i] = ggu[j];
+				//APlot[jg[j]][i] = 0;
 			}
 		}
 
-	for (i = 0; i < countOfNodes; i++)
+	for (i = 0; i < countOfGlobalBasicFunc; i++)
 	{
-		for (j = 0; j < countOfNodes; j++)
+		for (j = 0; j < countOfGlobalBasicFunc; j++)
 		{
 			outFile << setw(15) << APlot[i][j];
 		}
@@ -760,7 +986,7 @@ void PrintPlotMatrix(bool flag_simmeric)
 	}
 	outFile << endl;
 
-	for (i = 0; i < countOfNodes; i++)
+	for (i = 0; i < countOfGlobalBasicFunc; i++)
 	{
 		outFile << setw(15) << b[i];
 	}
@@ -768,471 +994,224 @@ void PrintPlotMatrix(bool flag_simmeric)
 	outFile << endl;
 }
 
-void Edge1_sim(bool up, bool down, bool left, bool right)
+
+//intXorY can be 0 or 1
+void doEdge1(ofstream& outEdge1File, int intXorY, int kolvoRegularNode, double* varNet1, int nVarNet1, double uncnownValuePlosk)
 {
-	ofstream ku1("ku1.txt");
-	int i, j, k, m, l;
-
-	//--------
-	for (i = 0; i < nX; i++)
+	for (int iVar1 = 0; iVar1 < nVarNet1; iVar1++)
 	{
-		if (down == true)
+		point goal(0, 0);
+		int iProizv = 0;
+		double valueProizv = 0;
+		if (intXorY == 0)
 		{
-			j = 0;
-			k = NumberNode(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
-			{
-				b[jg[m]] -= ggl[m] * AnaliticSolution(xNet[i], yNet[j]);
-				ggl[m] = 0;
-			}
+			goal = point(uncnownValuePlosk, varNet1[iVar1]);
+			iProizv = 2;
+			valueProizv = AnaliticSolutionDy(goal);
 		}
-		if (up == true)
+		else
 		{
-			j = nY - 1;
-			k = NumberNode(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
-			{
-				b[jg[m]] -= ggl[m] * AnaliticSolution(xNet[i], yNet[j]);
-				ggl[m] = 0;
-			}
+			goal = point(varNet1[iVar1], uncnownValuePlosk);
+			iProizv = 1;
+			valueProizv = AnaliticSolutionDx(goal);
 		}
-	}
-
-	for (j = 0; j < nY; j++)
-	{
-		if (left == true)
+		int k = 4 * indexXY(goal);
+		di[k] = di[k + iProizv] = 1;
+		b[k] = AnaliticSolution(goal);
+		b[k + iProizv] = valueProizv;
+		for (int iter = 0, prirash = 0; iter < 2; iter++)
 		{
-			i = 0;
-			k = NumberNode(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
+			for (int m = ig[k + prirash]; m < ig[k + prirash + 1]; m++)
 			{
-				b[jg[m]] -= ggl[m] * AnaliticSolution(xNet[i], yNet[j]);
 				ggl[m] = 0;
 			}
+			prirash = iProizv;
 		}
-		if (right == true)
+		for (int l = 0; l < kolvoRegularNode; l++)
 		{
-			i = nX - 1;
-			k = NumberNode(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
+			for (int m = ig[l]; m < ig[l + 1]; m++)
 			{
-				b[jg[m]] -= ggl[m] * AnaliticSolution(xNet[i], yNet[j]);
-				ggl[m] = 0;
-			}
-		}
-	}
-
-	//------------
-	for (i = 0; i < nX; i++)
-	{
-		if (down == true)
-		{
-			j = 0;
-			k = NumberNode(xNet[i], yNet[j]);
-			di[k] = 1;
-			b[k] = AnaliticSolution(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
-			{
-				ggl[m] = 0;
-			}
-			for (l = 0; l < countOfNodes; l++)
-			{
-				for (m = ig[l]; m < ig[l + 1]; m++)
+				if (k == jg[m] || jg[m] == k + iProizv)
 				{
-					if (k == jg[m])
-					{
-						b[l] -= b[k] * ggl[m];
-						ggl[m] = 0;
-					}
+					ggu[m] = 0;
 				}
 			}
-			ku1 << k << '\t' << b[k] << endl;
 		}
-		if (up == true)
-		{
-			j = nY - 1;
-			k = NumberNode(xNet[i], yNet[j]);
-			di[k] = 1;
-			b[k] = AnaliticSolution(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
-			{
-				ggl[m] = 0;
-			}
-			for (l = 0; l < countOfNodes; l++)
-			{
-				for (m = ig[l]; m < ig[l + 1]; m++)
-				{
-					if (k == jg[m])
-					{
-						b[l] -= b[k] * ggl[m];
-						ggl[m] = 0;
-					}
-				}
-			}
-			ku1 << k << '\t' << b[k] << endl;
-		}
-	}
-
-	for (j = 0; j < nY; j++)
-	{
-		if (left == true)
-		{
-			i = 0;
-			k = NumberNode(xNet[i], yNet[j]);
-			di[k] = 1;
-			b[k] = AnaliticSolution(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
-			{
-				ggl[m] = 0;
-			}
-			for (l = 0; l < countOfNodes; l++)
-			{
-				for (m = ig[l]; m < ig[l + 1]; m++)
-				{
-					if (k == jg[m])
-					{
-						b[l] -= b[k] * ggl[m];
-						ggl[m] = 0;
-					}
-				}
-			}
-			ku1 << k << '\t' << b[k] << endl;
-		}
-		if (right == true)
-		{
-			i = nX - 1;
-			k = NumberNode(xNet[i], yNet[j]);
-			di[k] = 1;
-			b[k] = AnaliticSolution(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
-			{
-				ggl[m] = 0;
-			}
-			for (l = 0; l < countOfNodes; l++)
-			{
-				for (m = ig[l]; m < ig[l + 1]; m++)
-				{
-					if (k == jg[m])
-					{
-						b[l] -= b[k] * ggl[m];
-						ggl[m] = 0;
-					}
-				}
-			}
-			ku1 << k << '\t' << b[k] << endl;
-		}
+		outEdge1File << k << '\t' << b[k] << endl;
+		outEdge1File << k + iProizv << '\t' << b[k + iProizv] << endl;
 	}
 }
 
+//
 void Edge1_not_sim(bool up, bool down, bool left, bool right)
 {
 	ofstream ku1("ku1.txt");
-	int i, j, k, m, l;
+	if (down)
+		doEdge1(ku1, 1, countOfGlobalBasicFunc, xNet, nX, yNet[0]);
+	if (up)
+		doEdge1(ku1, 1, countOfGlobalBasicFunc, xNet, nX, yNet[nY - 1]);
+	if (left)
+		doEdge1(ku1, 0, countOfGlobalBasicFunc, yNet, nY, xNet[0]);
+	if (right)
+		doEdge1(ku1, 0, countOfGlobalBasicFunc, yNet, nY, xNet[nX - 1]);
+}
 
-	for (i = 0; i < nX; i++)
+//intXorY can be 0 or 1
+//0 - если не меняется Х, иначе 1
+void doEdge2(ofstream& outEdge2File, int intXorY, int normalDirect, double* varNet1, int nVarNet1, double uncnownValuePlosk)
+{
+	double dUdn[4], dh1;
+	int indNodes[4];
+	double** M1d;
+	for (int iVar1 = 0; iVar1 < nVarNet1 - 1; iVar1++)
 	{
-		if (down == true)
+		point goal(0, 0);
+		if (intXorY == 0)
 		{
-			j = 0;
-			k = NumberNode(xNet[i], yNet[j]);
-			di[k] = 1;
-			b[k] = AnaliticSolution(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
-			{
-				ggl[m] = 0;
-			}
-			for (l = 0; l < countOfNodes; l++)
-			{
-				for (m = ig[l]; m < ig[l + 1]; m++)
-				{
-					if (k == jg[m])
-					{
-						ggu[m] = 0;
-					}
-				}
-			}
-			ku1 << k << '\t' << b[k] << endl;
+			goal = point(uncnownValuePlosk, varNet1[iVar1]);
+			point nextNode(uncnownValuePlosk, varNet1[iVar1 + 1]);
+			dUdn[0] = normalDirect * AnaliticSolutionDx(goal);
+			dUdn[1] = normalDirect * AnaliticSolutionDxDy(goal);
+			dUdn[2] = normalDirect * AnaliticSolutionDx(nextNode);
+			dUdn[3] = normalDirect * AnaliticSolutionDxDy(nextNode);
+			indNodes[0] = 4 * indexXY(goal);
+			indNodes[1] = 4 * indexXY(goal) + 2;
+			indNodes[2] = 4 * indexXY(nextNode);
+			indNodes[3] = 4 * indexXY(nextNode) + 2;
 		}
-		if (up == true)
+		else
 		{
-			j = nY - 1;
-			k = NumberNode(xNet[i], yNet[j]);
-			di[k] = 1;
-			b[k] = AnaliticSolution(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
-			{
-				ggl[m] = 0;
-			}
-			for (l = 0; l < countOfNodes; l++)
-			{
-				for (m = ig[l]; m < ig[l + 1]; m++)
-				{
-					if (k == jg[m])
-					{
-						ggu[m] = 0;
-					}
-				}
-			}
-			ku1 << k << '\t' << b[k] << endl;
+			goal = point(varNet1[iVar1], uncnownValuePlosk);
+			point nextNode(varNet1[iVar1 + 1], uncnownValuePlosk);
+			dUdn[0] = normalDirect * AnaliticSolutionDy(goal);
+			dUdn[1] = normalDirect * AnaliticSolutionDxDy(goal);
+			dUdn[2] = normalDirect * AnaliticSolutionDy(nextNode);
+			dUdn[3] = normalDirect * AnaliticSolutionDxDy(nextNode);
+			indNodes[0] = 4 * indexXY(goal);
+			indNodes[1] = 4 * indexXY(goal) + 1;
+			indNodes[2] = 4 * indexXY(nextNode);
+			indNodes[3] = 4 * indexXY(nextNode) + 1;
 		}
-	}
+		int indKE = FindNumberOfKe(indNodes[0]/4, indNodes[2]/4);
+		dh1 = varNet1[iVar1 + 1] - varNet1[iVar1];
+		M1d = createLocalM1d(dh1);
 
-	for (j = 0; j < nY; j++)
-	{
-		if (left == true)
+		for (size_t iter1 = 0; iter1 < 4; iter1++)
 		{
-			i = 0;
-			k = NumberNode(xNet[i], yNet[j]);
-			di[k] = 1;
-			b[k] = AnaliticSolution(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
+			double value = 0;
+			for (size_t iter2 = 0; iter2 < 4; iter2++)
 			{
-				ggl[m] = 0;
+				value += dUdn[iter2] * M1d[iter1][iter2] * Lambda(indKE);
 			}
-			for (l = 0; l < countOfNodes; l++)
-			{
-				for (m = ig[l]; m < ig[l + 1]; m++)
-				{
-					if (k == jg[m])
-					{
-						ggu[m] = 0;
-					}
-				}
-			}
-			ku1 << k << '\t' << b[k] << endl;
+			b[indNodes[iter1]] += value;
+			delete[]M1d[iter1];
+			outEdge2File << setw(10) << indNodes[iter1] << setw(15) << value << endl;
 		}
-		if (right == true)
-		{
-			i = nX - 1;
-			k = NumberNode(xNet[i], yNet[j]);
-			di[k] = 1;
-			b[k] = AnaliticSolution(xNet[i], yNet[j]);
-			for (m = ig[k]; m < ig[k + 1]; m++)
-			{
-				ggl[m] = 0;
-			}
-			for (l = 0; l < countOfNodes; l++)
-			{
-				for (m = ig[l]; m < ig[l + 1]; m++)
-				{
-					if (k == jg[m])
-					{
-						ggu[m] = 0;
-					}
-				}
-			}
-			ku1 << k << '\t' << b[k] << endl;
-		}
+		delete[]M1d;
 	}
 }
 
-void Edge2(bool up, bool down, bool left, bool right)
+void Edge2_not_sim(bool up, bool down, bool left, bool right)
 {
 	ofstream ku2("ku2.txt");
-	int i, j, k1, k2, numbKE;
-	double tetta1, tetta2, h = 0.01, dh;
-	if (up == true)
-	{
-		j = nY - 1;
-		for (i = 0; i < nX - 1; i++)
-		{
-			tetta1 = (AnaliticSolution(xNet[i], yNet[j] + h) - AnaliticSolution(xNet[i], yNet[j] - h)) / (2.0 * h);
-			k1 = NumberNode(xNet[i], yNet[j]);
-			tetta2 = (AnaliticSolution(xNet[i + 1], yNet[j] + h) - AnaliticSolution(xNet[i + 1], yNet[j] - h)) / (2.0 * h);
-			k2 = NumberNode(xNet[i + 1], yNet[j]);
-			dh = xNet[i + 1] - xNet[i];
-			numbKE = FindNumberOfKe(k1, k2);
-			b[k1] += dh * (2 * tetta1 + tetta2) / 6 * Lambda(numbKE);
-			b[k2] += dh * (tetta1 + 2 * tetta2) / 6 * Lambda(numbKE);
-			ku2 << setw(10) << k1 << setw(15) << tetta1 * Lambda(numbKE) << endl;
-			ku2 << setw(10) << k2 << setw(15) << tetta2 * Lambda(numbKE) << endl;
-		}
-	}
-	if (down == true)
-	{
-		j = 0;
-		for (i = 0; i < nX - 1; i++)
-		{
-			tetta1 = -(AnaliticSolution(xNet[i], yNet[j] + h) - AnaliticSolution(xNet[i], yNet[j] - h)) / (2.0 * h);
-			k1 = NumberNode(xNet[i], yNet[j]);
-			dh = xNet[i + 1] - xNet[i];
-			tetta2 = -(AnaliticSolution(xNet[i + 1], yNet[j] + h) - AnaliticSolution(xNet[i + 1], yNet[j] - h)) / (2.0 * h);
-			k2 = NumberNode(xNet[i + 1], yNet[j]);
-			numbKE = FindNumberOfKe(k1, k2);
-			b[k1] += dh * (2 * tetta1 + tetta2) / 6 * Lambda(numbKE);
-			b[k2] += dh * (tetta1 + 2 * tetta2) / 6 * Lambda(numbKE);
-			ku2 << setw(10) << k1 << setw(15) << tetta1 * Lambda(numbKE) << endl;
-			ku2 << setw(10) << k2 << setw(15) << tetta2 * Lambda(numbKE) << endl;
-		}
-	}
+	if (down)
+		doEdge2(ku2, 1, -1, xNet, nX, yNet[0]);
+	if (up)
+		doEdge2(ku2, 1, 1, xNet, nX, yNet[nY - 1]);
+	if (left)
+		doEdge2(ku2, 0, -1, yNet, nY, xNet[0]);
+	if (right)
+		doEdge2(ku2, 0, 1, yNet, nY, xNet[nX - 1]);
+}
 
-	if (left == true)
+//intXorY can be 0 or 1
+//0 - если не меняется Х, иначе 1
+void doEdge3(ofstream& outEdge3File, int intXorY, int normalDirect, double* varNet1, int nVarNet1, double uncnownValuePlosk)
+{
+	double dUdn[4], dh1, ubetta[4];
+	int indNodes[4];
+	double** M1d;
+	for (int iVar1 = 0; iVar1 < nVarNet1 - 1; iVar1++)
 	{
-		i = 0;
-		for (j = 0; j < nY - 1; j++)
+		point goal(0, 0);
+		int indKE;
+		if (intXorY == 0)
 		{
-			tetta1 = -(AnaliticSolution(xNet[i] + h, yNet[j]) - AnaliticSolution(xNet[i] - h, yNet[j])) / (2.0 * h);
-			k1 = NumberNode(xNet[i], yNet[j]);
-			dh = yNet[j + 1] - yNet[j];
-			tetta2 = -(AnaliticSolution(xNet[i] + h, yNet[j + 1]) - AnaliticSolution(xNet[i] - h, yNet[j + 1])) / (2 * h);
-			k2 = NumberNode(xNet[i], yNet[j + 1]);
+			goal = point(uncnownValuePlosk, varNet1[iVar1]);
+			point nextNode(uncnownValuePlosk, varNet1[iVar1 + 1]);
+			dUdn[0] = normalDirect * AnaliticSolutionDx(goal);
+			dUdn[1] = normalDirect * AnaliticSolutionDxDy(goal);
+			dUdn[2] = normalDirect * AnaliticSolutionDx(nextNode);
+			dUdn[3] = normalDirect * AnaliticSolutionDxDy(nextNode);
+			indNodes[0] = 4 * indexXY(goal);
+			indNodes[1] = 4 * indexXY(goal) + 2;
+			indNodes[2] = 4 * indexXY(nextNode);
+			indNodes[3] = 4 * indexXY(nextNode) + 2;
 
-			numbKE = FindNumberOfKe(k1, k2);
-			b[k1] += dh * (2 * tetta1 + tetta2) / 6 * Lambda(numbKE);
-			b[k2] += dh * (tetta1 + 2 * tetta2) / 6 * Lambda(numbKE);
-			ku2 << setw(10) << k1 << setw(15) << tetta1 * Lambda(numbKE) << endl;
-			ku2 << setw(10) << k2 << setw(15) << tetta2 * Lambda(numbKE) << endl;
+			indKE = FindNumberOfKe(indNodes[0] / 4, indNodes[2] / 4);
+
+			double a1 = normalDirect * AnaliticSolutionDxDy(goal.x, goal.y + hForProizv)* Lambda(indKE) + AnaliticSolution(goal.x, goal.y + hForProizv);
+			double a2 = (normalDirect * AnaliticSolutionDxDy(goal.x, goal.y - hForProizv)* Lambda(indKE) + AnaliticSolution(goal.x, goal.y - hForProizv));
+			ubetta[1] = (a1 - a2) / (2 * hForProizv);
+			ubetta[3] = (normalDirect * AnaliticSolutionDxDy(nextNode.x, nextNode.y + hForProizv)* Lambda(indKE) + AnaliticSolution(nextNode.x, nextNode.y + hForProizv) -
+				(normalDirect * AnaliticSolutionDxDy(nextNode.x, nextNode.y - hForProizv)* Lambda(indKE) + AnaliticSolution(nextNode.x, nextNode.y - hForProizv))) / (2 * hForProizv);
 		}
-	}
-	if (right == true)
-	{
-		i = nX - 1;
-		for (j = 0; j < nY - 1; j++)
+		else
 		{
-			tetta1 = (AnaliticSolution(xNet[i] + h, yNet[j]) - AnaliticSolution(xNet[i] - h, yNet[j])) / (2.0 * h);
-			k1 = NumberNode(xNet[i], yNet[j]);
-			dh = yNet[j + 1] - yNet[j];
-			tetta2 = (AnaliticSolution(xNet[i] + h, yNet[j + 1]) - AnaliticSolution(xNet[i] - h, yNet[j + 1])) / (2 * h);
-			k2 = NumberNode(xNet[i], yNet[j + 1]);
-			numbKE = FindNumberOfKe(k1, k2);
-			b[k1] += dh * (2 * tetta1 + tetta2) / 6 * Lambda(numbKE);
-			b[k2] += dh * (tetta1 + 2 * tetta2) / 6 * Lambda(numbKE);
-			ku2 << setw(10) << k1 << setw(15) << tetta1 * Lambda(numbKE) << endl;
-			ku2 << setw(10) << k2 << setw(15) << tetta2 * Lambda(numbKE) << endl;
+			goal = point(varNet1[iVar1], uncnownValuePlosk);
+			point nextNode(varNet1[iVar1 + 1], uncnownValuePlosk);
+			dUdn[0] = normalDirect * AnaliticSolutionDy(goal);
+			dUdn[1] = normalDirect * AnaliticSolutionDxDy(goal);
+			dUdn[2] = normalDirect * AnaliticSolutionDy(nextNode);
+			dUdn[3] = normalDirect * AnaliticSolutionDxDy(nextNode);
+			indNodes[0] = 4 * indexXY(goal);
+			indNodes[1] = 4 * indexXY(goal) + 1;
+			indNodes[2] = 4 * indexXY(nextNode);
+			indNodes[3] = 4 * indexXY(nextNode) + 1;
+
+			indKE = FindNumberOfKe(indNodes[0] / 4, indNodes[2] / 4);
+
+			ubetta[1] = (normalDirect * AnaliticSolutionDxDy(goal.x + hForProizv, goal.y)* Lambda(indKE) + AnaliticSolution(goal.x + hForProizv, goal.y) -
+				(normalDirect * AnaliticSolutionDxDy(goal.x - hForProizv, goal.y)* Lambda(indKE) + AnaliticSolution(goal.x - hForProizv, goal.y))) / (2 * hForProizv);
+			ubetta[3] = (normalDirect * AnaliticSolutionDxDy(nextNode.x + hForProizv, nextNode.y)* Lambda(indKE) + AnaliticSolution(nextNode.x + hForProizv, nextNode.y) -
+				(normalDirect * AnaliticSolutionDxDy(nextNode.x - hForProizv, nextNode.y)* Lambda(indKE) + AnaliticSolution(nextNode.x - hForProizv, nextNode.y))) / (2 * hForProizv);
 		}
+		dh1 = varNet1[iVar1 + 1] - varNet1[iVar1];
+		M1d = createLocalM1d(dh1);
+		double betta = 1;
+
+		for (size_t i = 0; i < 4; i+=2)
+		{
+			ubetta[i] = AnaliticSolution(xy[indNodes[i]/4]) + dUdn[i];
+		}
+
+		for (size_t iter1 = 0; iter1 < 4; iter1++)
+		{
+			double value = 0;
+			for (size_t iter2 = 0; iter2 < 4; iter2++)
+			{
+				value += betta*ubetta[iter2] * M1d[iter1][iter2];
+				AddToMatrix(indNodes[iter1], indNodes[iter2], betta*M1d[iter1][iter2]);
+			}
+			b[indNodes[iter1]] += value;
+			delete[]M1d[iter1];
+			outEdge3File << setw(10) << indNodes[iter1] << setw(15) << value << endl;
+		}
+		delete[]M1d;
 	}
 }
 
-void Edge3(bool up, bool down, bool left, bool right)
+void Edge3_not_sim(bool up, bool down, bool left, bool right)
 {
 	ofstream ku3("ku3.txt");
-	int i, j, k, k1, k2, numbKE, nextNode;
-	double tetta1, tetta2, u, h = 0.01, dh, beta, ubeta1, ubeta2, leftNodeX, leftNodeY;
-	if (up == true)
-	{
-		j = nY - 1;
-		for (i = 0; i < nX - 1; i++)
-		{
-			leftNodeX = xNet[i];
-			leftNodeY = yNet[j];
-			k1 = NumberNode(xNet[i], yNet[j]);
-			k2 = NumberNode(xNet[i + 1], yNet[j]);
-			numbKE = FindNumberOfKe(k1, k2);
-			tetta1 = (AnaliticSolution(leftNodeX, leftNodeY + h) - AnaliticSolution(leftNodeX, leftNodeY - h)) / (2.0 * h) * Lambda(numbKE);
-			tetta2 = (AnaliticSolution(xNet[i + 1], yNet[j] + h) - AnaliticSolution(xNet[i + 1], yNet[j] - h)) / (2.0 * h) * Lambda(numbKE);
-			ubeta1 = AnaliticSolution(leftNodeX, leftNodeY) - 1;
-			ubeta2 = AnaliticSolution(xNet[i + 1], yNet[j]) - 1;
-			beta = -tetta1;
-			dh = xNet[i + 1] - leftNodeX;
-			b[k1] += beta * dh * (2 * ubeta1 + ubeta2) / 6;
-			b[k2] += beta * dh * (ubeta1 + 2 * ubeta2) / 6;
-			di[k1] += beta * dh / 3;
-			di[k2] += beta * dh / 3;
-			for (k = ig[k2]; k < ig[k2 + 1]; k++)
-			{
-				if (jg[k] == k1)
-				{
-					ggl[k] += beta * dh / 6;
-					break;
-				}
-			}
-			ku3 << setw(15) << k1 << setw(15) << ubeta1 << setw(15) << k2 << setw(15) << ubeta2 << setw(15) << beta << endl;
-		}
-	}
-	if (down == true)
-	{
-		j = 0;
-		for (i = 0; i < nX - 1; i++)
-		{
-			leftNodeX = xNet[i];
-			leftNodeY = yNet[j];
-			k1 = NumberNode(xNet[i], yNet[j]);
-			k2 = NumberNode(xNet[i + 1], yNet[j]);
-			numbKE = FindNumberOfKe(k1, k2);
-			tetta1 = -(AnaliticSolution(leftNodeX, leftNodeY + h) - AnaliticSolution(leftNodeX, leftNodeY - h)) / (2.0 * h) * Lambda(numbKE);
-			tetta2 = -(AnaliticSolution(xNet[i + 1], yNet[j] + h) - AnaliticSolution(xNet[i + 1], yNet[j] - h)) / (2.0 * h) * Lambda(numbKE);
-			ubeta1 = AnaliticSolution(leftNodeX, leftNodeY) - 1;
-			ubeta2 = AnaliticSolution(xNet[i + 1], yNet[j]) - 1;
-			beta = -tetta1;
-			dh = xNet[i + 1] - leftNodeX;
-			b[k1] += beta * dh * (2 * ubeta1 + ubeta2) / 6;
-			b[k2] += beta * dh * (ubeta1 + 2 * ubeta2) / 6;
-			di[k1] += beta * dh / 3;
-			di[k2] += beta * dh / 3;
-			for (k = ig[k2]; k < ig[k2 + 1]; k++)
-			{
-				if (jg[k] == k1)
-				{
-					ggl[k] += beta * dh / 6;
-					break;
-				}
-			}
-			ku3 << setw(15) << k1 << setw(15) << ubeta1 << setw(15) << k2 << setw(15) << ubeta2 << setw(15) << beta << endl;
-		}
-	}
-
-	if (left == true)
-	{
-		i = 0;
-		for (j = 0; j < nY - 1; j++)
-		{
-			leftNodeX = xNet[i];
-			leftNodeY = yNet[j];
-			k1 = NumberNode(xNet[i], yNet[j]);
-			k2 = NumberNode(xNet[i], yNet[j + 1]);
-			numbKE = FindNumberOfKe(k1, k2);
-			tetta1 = -(AnaliticSolution(leftNodeX + h, leftNodeY) - AnaliticSolution(leftNodeX - h, leftNodeY)) / (2.0 * h) * Lambda(numbKE);
-			tetta2 = -(AnaliticSolution(xNet[i] + h, yNet[j + 1]) - AnaliticSolution(xNet[i] - h, yNet[j + 1])) / (2.0 * h) * Lambda(numbKE);
-			ubeta1 = AnaliticSolution(leftNodeX, leftNodeY) - 1;
-			ubeta2 = AnaliticSolution(xNet[i], yNet[j + 1]) - 1;
-			beta = -tetta1;
-			dh = yNet[j + 1] - leftNodeY;
-			b[k1] += beta * dh * (2 * ubeta1 + ubeta2) / 6;
-			b[k2] += beta * dh * (ubeta1 + 2 * ubeta2) / 6;
-			di[k1] += beta * dh / 3;
-			di[k2] += beta * dh / 3;
-			for (k = ig[k2]; k < ig[k2 + 1]; k++)
-			{
-				if (jg[k] == k1)
-				{
-					ggl[k] += beta * dh / 6;
-					break;
-				}
-			}
-			ku3 << setw(15) << k1 << setw(15) << ubeta1 << setw(15) << k2 << setw(15) << ubeta2 << setw(15) << beta << endl;
-		}
-	}
-	if (right == true)
-	{
-		i = nX - 1;
-		for (j = 0; j < nY - 1; j++)
-		{
-			leftNodeX = xNet[i];
-			leftNodeY = yNet[j];
-			k1 = NumberNode(xNet[i], yNet[j]);
-			k2 = NumberNode(xNet[i], yNet[j + 1]);
-			numbKE = FindNumberOfKe(k1, k2);
-			tetta1 = (AnaliticSolution(leftNodeX + h, leftNodeY) - AnaliticSolution(leftNodeX - h, leftNodeY)) / (2.0 * h) * Lambda(numbKE);
-			tetta2 = (AnaliticSolution(xNet[i] + h, yNet[j + 1]) - AnaliticSolution(xNet[i] - h, yNet[j + 1])) / (2.0 * h) * Lambda(numbKE);
-			ubeta1 = AnaliticSolution(leftNodeX, leftNodeY) - 1;
-			ubeta2 = AnaliticSolution(xNet[i], yNet[j + 1]) - 1;
-			beta = -tetta1;
-			dh = yNet[j + 1] - leftNodeY;
-			b[k1] += beta * dh * (2 * ubeta1 + ubeta2) / 6;
-			b[k2] += beta * dh * (ubeta1 + 2 * ubeta2) / 6;
-			di[k1] += beta * dh / 3;
-			di[k2] += beta * dh / 3;
-			for (k = ig[k2]; k < ig[k2 + 1]; k++)
-			{
-				if (jg[k] == k1)
-				{
-					ggl[k] += beta * dh / 6;
-					break;
-				}
-			}
-			ku3 << setw(15) << k1 << setw(15) << ubeta1 << setw(15) << k2 << setw(15) << ubeta2 << setw(15) << beta << endl;
-		}
-	}
+	if (down)
+		doEdge3(ku3, 1, -1, xNet, nX, yNet[0]);
+	if (up)
+		doEdge3(ku3, 1, 1, xNet, nX, yNet[nY - 1]);
+	if (left)
+		doEdge3(ku3, 0, -1, yNet, nY, xNet[0]);
+	if (right)
+		doEdge3(ku3, 0, 1, yNet, nY, xNet[nX - 1]);
 }
 
 void PrintLocalMatrix()
@@ -1249,6 +1228,91 @@ void PrintLocalMatrix()
 	outFile << endl;
 }
 
+void TestFromBook()
+{
+	double** Mx = createLocalM1d(10);
+	double** My = createLocalM1d(xy[3].y - xy[0].y);
+
+	{
+		double vect[4] = {-500,-100,-2000,-200};
+		double bVect[4];
+		int konvertation[4] = {0,1,4,5};
+
+		//второе краевое S12
+		for (int i = 0; i < 4; i++)
+		{
+			bVect[i] = 0;
+			for (int j = 0; j < 4; j++)
+			{
+				bVect[i] += Mx[i][j] * vect[j];
+			}
+			b[konvertation[i]] += bVect[i];
+		}
+	}
+
+	//второе краевое S22
+	{
+		double vect[4] = {0,-100,-11.2,-136};
+		double bVect[4];
+		int konvertation[4] = {0,2,8,10};
+		for (int i = 0; i < 4; i++)
+		{
+			bVect[i] = 0;
+			for (int j = 0; j < 4; j++)
+			{
+				bVect[i] += My[i][j] * vect[j];
+			}
+			b[konvertation[i]] += bVect[i];
+		}
+	}
+
+	//третье краевое S3
+	{
+		double vect[4] = {10,2200,266.82,3304.4};
+		double bVect[4], A[4][4];
+		int konvertation[4] = {4,6,12,14};
+		for (int i = 0; i < 4; i++)
+		{
+			bVect[i] = 0;
+			for (int j = 0; j < 4; j++)
+			{
+				bVect[i] += My[i][j] * vect[j];
+				A[i][j] = My[i][j];
+				AddToMatrix(konvertation[i], konvertation[j], A[i][j]);
+				//AddToMatrix(konvertation[j], konvertation[i], A[i][j]);
+			}
+			b[konvertation[i]] += bVect[i];
+		}
+	}
+
+	//первое краевое
+	{
+		int konvertation[4] = {8,9,12,13};
+		for (int i = 0; i < 4; i++)
+		{
+			di[konvertation[i]] = 1;
+			if (konvertation[i] == 8 || konvertation[i] == 12)
+				b[konvertation[i]] = AnaliticSolution(xNet[i / 2], yNet[1]);
+			else
+				b[konvertation[i]] = AnaliticSolutionDx(xNet[i / 2], yNet[1]);
+			for (int m = ig[konvertation[i]]; m < ig[konvertation[i] + 1]; m++)
+			{
+				ggl[m] = 0;
+			}
+			for (int l = 0; l < countOfGlobalBasicFunc; l++)
+			{
+				for (int m = ig[l]; m < ig[l + 1]; m++)
+				{
+					if (konvertation[i] == jg[m])
+					{
+						ggu[m] = 0;
+					}
+				}
+			}
+		}
+	}
+}
+
 void GenerateMatrix()
 {
 	int ielem, i, j;
@@ -1259,16 +1323,17 @@ void GenerateMatrix()
 		//PrintLocalMatrix();
 		//PrintPlotMatrix(true);
 	}
+	//PrintPlotMatrix(false);
 
-	//Edge2(1, 1, 1, 1);
-	//Edge3(1, 1, 1, 1);
-	//Edge1_sim(1, 1, 1, 1);
-	//PrintPlotMatrix(true);
-	for (i = 0; i < ig[countOfNodes]; i++)
+	//Edge2_not_sim(1, 1, 1, 1);
+	for (i = 0; i < ig[countOfGlobalBasicFunc]; i++)
 	{
 		ggu[i] = ggl[i];
 	}
 	Edge1_not_sim(1, 1, 1, 1);
+	//TestFromBook();
+	PrintPlotMatrix(false);
+	//Edge1_not_sim(1, 1, 1, 1);
 	//PrintPlotMatrix(true);
 }
 
@@ -1287,12 +1352,12 @@ void mult(double* res, double* v)
 	}
 }
 
-double ScalarMult(double* v1, double* v2)
+double ScalarMult(double* v1, double* v2, int dimQ)
 {
 	int i;
 	double result;
 	result = 0;
-	for (i = 0; i < countOfNodes; i++)
+	for (i = 0; i < dimQ; i++)
 	{
 		result += v1[i] * v2[i];
 	}
@@ -1300,12 +1365,12 @@ double ScalarMult(double* v1, double* v2)
 }
 
 //	Умножение матрицы на вектор
-void MultMatrixOnVector(double* in, double* out)
+void MultMatrixOnVector(double* in, double* out, int dimQ)
 {
 	int i, j;
 	double* out1;
-	out1 = new double[countOfNodes];
-	for (i = 0; i < countOfNodes; i++)
+	out1 = new double[dimQ];
+	for (i = 0; i < dimQ; i++)
 	{
 		out1[i] = di[i] * in[i];
 		for (j = ig[i]; j < ig[i + 1]; j++)
@@ -1314,95 +1379,95 @@ void MultMatrixOnVector(double* in, double* out)
 			out1[jg[j]] += ggu[j] * in[i];
 		}
 	}
-	for (i = 0; i < countOfNodes; i++)
+	for (i = 0; i < dimQ; i++)
 		out[i] = out1[i];
 	delete[] out1;
 }
 
-void runMSG()
+void runMSG(int dimQ)
 {
 	int maxiter = 10000, i;
 	double alfa, alfachisl, alfaznam, beta, betachisl, betaznam, checkE, epsMSG = 1e-16;
-	double* r = new double[countOfNodes];
-	double* s = new double[countOfNodes];
-	double* z = new double[countOfNodes];
-	double* rout = new double[countOfNodes];
-	for (i = 0; i < countOfNodes; i++)
+	double* r = new double[dimQ];
+	double* s = new double[dimQ];
+	double* z = new double[dimQ];
+	double* rout = new double[dimQ];
+	for (i = 0; i < dimQ; i++)
 	{
 		s[i] = rout[i] = r[i] = q[i] = z[i] = 0;
 	}
-	MultMatrixOnVector(q, r);
-	for (i = 0; i < countOfNodes; i++)
+	MultMatrixOnVector(q, r, dimQ);
+	for (i = 0; i < dimQ; i++)
 	{
 		r[i] = b[i] - r[i];
 		z[i] = r[i];
 	}
-	checkE = sqrt(ScalarMult(r, r) / ScalarMult(b, b));
+	checkE = sqrt(ScalarMult(r, r, dimQ) / ScalarMult(b, b, dimQ));
 	for (iter = 0; iter < maxiter && checkE >= epsMSG; iter++)
 	{
-		alfachisl = ScalarMult(r, r);
-		MultMatrixOnVector(z, s);
-		alfaznam = ScalarMult(s, z);
+		alfachisl = ScalarMult(r, r, dimQ);
+		MultMatrixOnVector(z, s, dimQ);
+		alfaznam = ScalarMult(s, z, dimQ);
 		alfa = alfachisl / alfaznam;
-		for (i = 0; i < countOfNodes; i++)
+		for (i = 0; i < dimQ; i++)
 		{
 			q[i] = q[i] + alfa * z[i];
 			rout[i] = r[i] - alfa * s[i];
 		}
-		betachisl = ScalarMult(rout, rout);
-		betaznam = ScalarMult(r, r);
+		betachisl = ScalarMult(rout, rout, dimQ);
+		betaznam = ScalarMult(r, r, dimQ);
 		beta = betachisl / betaznam;
-		for (i = 0; i < countOfNodes; i++)
+		for (i = 0; i < dimQ; i++)
 		{
 			z[i] = rout[i] + beta * z[i];
 			r[i] = rout[i];
 		}
-		checkE = sqrt(ScalarMult(r, r) / ScalarMult(b, b));
+		checkE = sqrt(ScalarMult(r, r, dimQ) / ScalarMult(b, b, dimQ));
 	}
 }
 
-void runLOS()
+void runLOS(int dimQ)
 {
 	int maxiter = 10000, i;
 	double alfa, alfachisl, alfaznam, beta, betachisl, betaznam, checkE, epsMSG = 1e-16, startNeviazka;
-	double* r = new double[countOfNodes];
-	double* s = new double[countOfNodes];
-	double* z = new double[countOfNodes];
-	double* p = new double[countOfNodes];
-	double* rout = new double[countOfNodes];
-	for (i = 0; i < countOfNodes; i++)
+	double* r = new double[dimQ];
+	double* s = new double[dimQ];
+	double* z = new double[dimQ];
+	double* p = new double[dimQ];
+	double* rout = new double[dimQ];
+	for (i = 0; i < dimQ; i++)
 	{
 		s[i] = rout[i] = r[i] = q[i] = z[i] = p[i] = 0;
 	}
-	MultMatrixOnVector(q, r);
-	for (i = 0; i < countOfNodes; i++)
+	MultMatrixOnVector(q, r, dimQ);
+	for (i = 0; i < dimQ; i++)
 	{
 		r[i] = b[i] - r[i];
 		z[i] = r[i];
 	}
-	MultMatrixOnVector(z, p);
-	checkE = sqrt(ScalarMult(r, r) / ScalarMult(b, b));
+	MultMatrixOnVector(z, p, dimQ);
+	checkE = sqrt(ScalarMult(r, r, dimQ) / ScalarMult(b, b, dimQ));
 	//startNeviazka = checkE = ScalarMult(r, r);
 	for (iter = 0; iter < maxiter && checkE >= epsMSG; iter++)
 	{
-		alfachisl = ScalarMult(p, r);
-		alfaznam = ScalarMult(p, p);
+		alfachisl = ScalarMult(p, r, dimQ);
+		alfaznam = ScalarMult(p, p, dimQ);
 		alfa = alfachisl / alfaznam;
-		for (i = 0; i < countOfNodes; i++)
+		for (i = 0; i < dimQ; i++)
 		{
 			q[i] = q[i] + alfa * z[i];
 			r[i] = r[i] - alfa * p[i];
 		}
-		MultMatrixOnVector(r, rout);
-		betachisl = ScalarMult(p, rout);
-		betaznam = ScalarMult(p, p);
+		MultMatrixOnVector(r, rout, dimQ);
+		betachisl = ScalarMult(p, rout, dimQ);
+		betaznam = ScalarMult(p, p, dimQ);
 		beta = -betachisl / betaznam;
-		for (i = 0; i < countOfNodes; i++)
+		for (i = 0; i < dimQ; i++)
 		{
 			z[i] = r[i] + beta * z[i];
 			p[i] = rout[i] + beta * p[i];
 		}
-		checkE = sqrt(ScalarMult(r, r) / ScalarMult(b, b));
+		checkE = sqrt(ScalarMult(r, r, dimQ) / ScalarMult(b, b, dimQ));
 	}
 }
 
@@ -1414,8 +1479,23 @@ void outputResult()
 	for (i = 0; i < countOfNodes; i++)
 	{
 		analitSolvInNode = AnaliticSolution(xy[i].x, xy[i].y);
-		outFile << setw(15) << q[i] << "\t" << setw(15) << analitSolvInNode << "\t" << setw(15) << abs(q[i] - analitSolvInNode) << endl;
-		chislitPogreshnosti += (q[i] - analitSolvInNode) * (q[i] - analitSolvInNode);
+		outFile << setw(15) << q[4 * i] << "\t" << setw(15) << analitSolvInNode << "\t" << setw(15) << abs(q[4 * i] - analitSolvInNode) << endl;
+		chislitPogreshnosti += (q[4 * i] - analitSolvInNode) * (q[4 * i] - analitSolvInNode);
+		otnosPogreshnost += analitSolvInNode * analitSolvInNode;
+
+		analitSolvInNode = AnaliticSolutionDx(xy[i].x, xy[i].y);
+		outFile << setw(15) << q[4 * i + 1] << "\t" << setw(15) << analitSolvInNode << "\t" << setw(15) << abs(q[4 * i + 1] - analitSolvInNode) << endl;
+		chislitPogreshnosti += (q[4 * i + 1] - analitSolvInNode) * (q[4 * i + 1] - analitSolvInNode);
+		otnosPogreshnost += analitSolvInNode * analitSolvInNode;
+
+		analitSolvInNode = AnaliticSolutionDy(xy[i].x, xy[i].y);
+		outFile << setw(15) << q[4 * i + 2] << "\t" << setw(15) << analitSolvInNode << "\t" << setw(15) << abs(q[4 * i + 2] - analitSolvInNode) << endl;
+		chislitPogreshnosti += (q[4 * i + 2] - analitSolvInNode) * (q[4 * i + 2] - analitSolvInNode);
+		otnosPogreshnost += analitSolvInNode * analitSolvInNode;
+
+		analitSolvInNode = AnaliticSolutionDxDy(xy[i].x, xy[i].y);
+		outFile << setw(15) << q[4 * i + 3] << "\t" << setw(15) << analitSolvInNode << "\t" << setw(15) << abs(q[4 * i + 3] - analitSolvInNode) << endl;
+		chislitPogreshnosti += (q[4 * i + 3] - analitSolvInNode) * (q[4 * i + 3] - analitSolvInNode);
 		otnosPogreshnost += analitSolvInNode * analitSolvInNode;
 	}
 	otnosPogreshnost = sqrt(chislitPogreshnosti / otnosPogreshnost);
@@ -1435,7 +1515,7 @@ int main(int argc, char* argv[])
 	GeneratePortrait();
 	GenerateMatrix();
 	//runMSG();
-	runLOS();
+	runLOS(countOfGlobalBasicFunc);
 
 	outputResult();
 
